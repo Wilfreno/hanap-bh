@@ -28,6 +28,28 @@ jobs:
           fi
           echo "Source '$head' -> '$base': allowed."
 
+  # Feature PRs into main-uat are squashed using the PR title, and release-please
+  # reads that title as the commit. So the title must be a valid Conventional
+  # Commit. A scoped breaking change (e.g. `feat(web)!: ...`) bumps only that app
+  # to its next major.
+  pr-title:
+    name: pr-title
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main-uat' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title (Conventional Commits)
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+          if ! printf '%s' "$TITLE" | grep -qE "^($types)(\([a-z0-9-]+\))?!?: .+"; then
+            echo "::error::PR title must be a Conventional Commit, e.g. 'feat(web): ...'"
+            echo "::error::For a major bump of one app, use the '!' marker: 'feat(web)!: ...'"
+            echo "Got: $TITLE"
+            exit 1
+          fi
+          echo "PR title OK: $TITLE"
+
   # Detect which parts of the monorepo changed so we only test what's affected.
   changes:
     name: Detect changes
@@ -126,12 +148,12 @@ jobs:
   ci:
     name: CI Success
     if: ${{ always() }}
-    needs: [guard, mobile, web, server, packages]
+    needs: [guard, pr-title, mobile, web, server, packages]
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required job failed
         run: |
-          for r in "${{ needs.guard.result }}" "${{ needs.mobile.result }}" "${{ needs.web.result }}" "${{ needs.server.result }}" "${{ needs.packages.result }}"; do
+          for r in "${{ needs.guard.result }}" "${{ needs['pr-title'].result }}" "${{ needs.mobile.result }}" "${{ needs.web.result }}" "${{ needs.server.result }}" "${{ needs.packages.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "A required job did not pass (result: $r)."
               exit 1
