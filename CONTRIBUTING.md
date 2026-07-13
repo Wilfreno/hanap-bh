@@ -2,34 +2,66 @@
 
 This is a pnpm + Turborepo monorepo with three apps — `apps/mobile` (Expo), `apps/web` (Next.js), and `apps/server` (NestJS) — plus shared `packages/*`.
 
-## Commit messages
+## Commit messages & PR titles
 
-Commits **must** follow [Conventional Commits](https://www.conventionalcommits.org/). This is enforced locally by a `commit-msg` git hook (husky + commitlint); a non-conforming message is rejected.
+Feature PRs are **squash-merged**, and the squash uses the **PR title** as the
+commit message — so the **PR title is what release-please reads** to compute
+versions. It **must** be a [Conventional Commit](https://www.conventionalcommits.org/),
+and CI enforces this (the `pr-title` check).
 
 ```
 type(optional-scope): subject
 ```
 
-Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. The type must be lowercase and the subject non-empty.
+Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
 
-| Example | Result |
+| PR title | Result |
 | --- | --- |
-| `feat: add user login` | ✅ minor version bump |
-| `fix(server): handle null token` | ✅ patch version bump |
-| `feat!: drop node 18` or a `BREAKING CHANGE:` footer | ✅ major version bump |
-| `updated stuff` | ❌ rejected (no type) |
+| `feat: add user login` | ✅ minor bump |
+| `fix(server): handle null token` | ✅ patch bump for `server` |
+| `feat(web)!: redesign dashboard` | ✅ **major** bump for `web` (see below) |
+| `updated stuff` | ❌ CI fails (not a Conventional Commit) |
+
+Your local commits are also linted by a `commit-msg` hook (husky + commitlint),
+but since PRs are squashed, only the **PR title** ultimately matters for releases.
 
 > The hooks install automatically after `pnpm install` (via the `prepare` script). If they ever stop firing, run `pnpm exec husky`.
 
-## Branching & pull requests
+### Major (breaking) releases
 
-`main` is protected — **you cannot push to it directly**. All changes go through a pull request:
+To bump an app to its **next major version**, add the `!` marker to a scoped PR
+title on the **feature PR** that changes that app:
 
-1. Branch off `main` (e.g. `feat/…`, `fix/…`, `chore/…`).
-2. Open a PR into `main`.
-3. CI must pass; the required check is **`CI Success`**. Self-merge is allowed (0 approvals required).
+```
+feat(web)!: drop legacy auth
+```
 
-Force-pushes and branch deletion on `main` are blocked.
+Because the PR only touches `apps/web`, release-please bumps **only `web`** to its
+next major; other apps bump normally based on their own changes. (A
+`BREAKING CHANGE:` footer in the PR description works too.) The scope must be the
+app whose files the PR changes — the marker is only "scoped" because release-please
+attributes the commit by file path.
+
+## Branching & the promotion flow
+
+There are two protected branches: **`main-uat`** (staging/UAT) and **`main`**
+(production, where releases are cut). Changes flow one way:
+
+```
+feature branch ──squash──▶ main-uat ──merge commit──▶ main ──▶ releases
+```
+
+1. Branch off `main-uat` (e.g. `feat/…`, `fix/…`).
+2. Open a PR **into `main-uat`** → **squash-merge** (the PR title becomes the commit).
+3. When UAT is ready, open a PR **`main-uat` → `main`** → **merge-commit** (preserves
+   the individual commits so release-please sees each one).
+
+Both branches are protected: no direct pushes, no force-push/deletion, and the
+**`CI Success`** check must pass (self-merge allowed, 0 approvals). PRs into `main`
+may **only** come from `main-uat` (enforced by the `guard` CI job); release-please's
+own release PRs are exempt.
+
+> `main` accepts **merge commits only**; `main-uat` accepts **squash only**.
 
 ## CI
 
@@ -38,6 +70,8 @@ workspaces were touched and only runs the affected jobs:
 
 | Job | Runs when | Runs |
 | --- | --- | --- |
+| `guard` | any PR | fails PRs into `main` not from `main-uat` |
+| `pr-title` | PRs into `main-uat` | fails if the PR title isn't a Conventional Commit |
 | `mobile` | `apps/mobile/**` changed | lint |
 | `web` | `apps/web/**` changed | lint + build + test |
 | `server` | `apps/server/**` changed | lint + build + test |
@@ -75,10 +109,11 @@ configured for **per-app versioning** (`release-please-config.json` +
 
 How it works:
 
-1. Merge Conventional-Commit PRs into `main`.
+1. Promote `main-uat` → `main` (merge commit). release-please reads the promoted
+   Conventional-Commit history.
 2. release-please opens (or updates) a **release PR per affected app** — e.g.
-   `chore(main): release web 0.2.0`. It bumps the version and updates the app's
-   `CHANGELOG.md`.
+   `chore(main): release web 0.2.0`. It bumps the version (major/minor/patch from
+   the commits) and updates the app's `CHANGELOG.md`.
 3. **Merging that release PR** creates the git tag and the GitHub Release.
 
 ### Required: `RELEASE_PLEASE_TOKEN` secret
