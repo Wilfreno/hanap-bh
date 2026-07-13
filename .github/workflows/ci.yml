@@ -45,28 +45,11 @@ jobs:
               - *shared
               - 'packages/**'
 
-  # One leg per workspace; each leg only runs when that workspace changed.
-  test:
-    name: ${{ matrix.name }}
+  mobile:
+    name: mobile
     needs: changes
-    if: ${{ needs.changes.outputs[matrix.app] == 'true' }}
+    if: ${{ needs.changes.outputs.mobile == 'true' }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - app: mobile
-            name: mobile
-            filter: ./apps/mobile
-          - app: web
-            name: web
-            filter: ./apps/web
-          - app: server
-            name: server
-            filter: ./apps/server
-          - app: packages
-            name: packages
-            filter: ./packages/*
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -75,19 +58,66 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Lint, types, build & test (${{ matrix.name }})
-        run: pnpm turbo run lint check-types build test --filter='${{ matrix.filter }}'
+      - run: pnpm turbo run lint check-types build test --filter=./apps/mobile
 
-  # Single required status check: passes only if no test leg failed.
+  web:
+    name: web
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint check-types build test --filter=./apps/web
+
+  server:
+    name: server
+    needs: changes
+    if: ${{ needs.changes.outputs.server == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint check-types build test --filter=./apps/server
+
+  packages:
+    name: packages
+    needs: changes
+    if: ${{ needs.changes.outputs.packages == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint check-types build test --filter=./packages/*
+
+  # Single required status check: green only if no workspace job failed.
   ci:
     name: CI Success
     if: ${{ always() }}
-    needs: [changes, test]
+    needs: [mobile, web, server, packages]
     runs-on: ubuntu-latest
     steps:
-      - name: Fail if any test leg failed
-        if: ${{ needs.test.result == 'failure' || needs.test.result == 'cancelled' }}
+      - name: Verify no workspace failed
         run: |
-          echo "One or more test legs failed: ${{ needs.test.result }}"
-          exit 1
-      - run: echo "All affected workspaces passed."
+          for r in "${{ needs.mobile.result }}" "${{ needs.web.result }}" "${{ needs.server.result }}" "${{ needs.packages.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "A workspace job did not pass (result: $r)."
+              exit 1
+            fi
+          done
+          echo "All affected workspaces passed."
