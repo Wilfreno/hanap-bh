@@ -101,3 +101,5 @@ so it falls back to the default token until the secret is set.
 > **If a release PR is stuck** with no CI (a `action_required` run from the bot),
 > and the token isn't configured yet: close and reopen the PR — reopening it as a
 > real user re-triggers CI and unblocks the `CI Success` check.
+
+<!-- guard test, will be reverted -->
