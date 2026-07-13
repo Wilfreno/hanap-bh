@@ -2,15 +2,32 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, main-uat]
   push:
-    branches: [main]
+    branches: [main, main-uat]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Enforce the promotion flow: PRs into `main` may only come from `main-uat`
+  # (or release-please's own release branches). Feature work targets `main-uat`.
+  guard:
+    name: guard
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce main-uat as the only source into main
+        run: |
+          base="${{ github.base_ref }}"
+          head="${{ github.head_ref }}"
+          if [ "$base" = "main" ] && [ "$head" != "main-uat" ] && [[ "$head" != release-please--* ]]; then
+            echo "::error::PRs into 'main' must come from 'main-uat' (or release-please). Got '$head' -> '$base'."
+            exit 1
+          fi
+          echo "Source '$head' -> '$base': allowed."
+
   # Detect which parts of the monorepo changed so we only test what's affected.
   changes:
     name: Detect changes
@@ -109,15 +126,15 @@ jobs:
   ci:
     name: CI Success
     if: ${{ always() }}
-    needs: [mobile, web, server, packages]
+    needs: [guard, mobile, web, server, packages]
     runs-on: ubuntu-latest
     steps:
-      - name: Verify no workspace failed
+      - name: Verify no required job failed
         run: |
-          for r in "${{ needs.mobile.result }}" "${{ needs.web.result }}" "${{ needs.server.result }}" "${{ needs.packages.result }}"; do
+          for r in "${{ needs.guard.result }}" "${{ needs.mobile.result }}" "${{ needs.web.result }}" "${{ needs.server.result }}" "${{ needs.packages.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "A workspace job did not pass (result: $r)."
+              echo "A required job did not pass (result: $r)."
               exit 1
             fi
           done
-          echo "All affected workspaces passed."
+          echo "All required checks passed."
