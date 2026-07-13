@@ -11,33 +11,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Lint, types, build & test
+  # Detect which parts of the monorepo changed so we only test what's affected.
+  changes:
+    name: Detect changes
     runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+      web: ${{ steps.filter.outputs.web }}
+      server: ${{ steps.filter.outputs.server }}
+      packages: ${{ steps.filter.outputs.packages }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - '.github/workflows/ci.yml'
+            mobile:
+              - *shared
+              - 'apps/mobile/**'
+            web:
+              - *shared
+              - 'apps/web/**'
+            server:
+              - *shared
+              - 'apps/server/**'
+            packages:
+              - *shared
+              - 'packages/**'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+  # One leg per workspace; each leg only runs when that workspace changed.
+  test:
+    name: ${{ matrix.name }}
+    needs: changes
+    if: ${{ needs.changes.outputs[matrix.app] == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: mobile
+            name: mobile
+            filter: ./apps/mobile
+          - app: web
+            name: web
+            filter: ./apps/web
+          - app: server
+            name: server
+            filter: ./apps/server
+          - app: packages
+            name: packages
+            filter: ./packages/*
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint, types, build & test (${{ matrix.name }})
+        run: pnpm turbo run lint check-types build test --filter='${{ matrix.filter }}'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Check types
-        run: pnpm check-types
-
-      - name: Build
-        run: pnpm build
-
-      - name: Test
-        run: pnpm test
+  # Single required status check: passes only if no test leg failed.
+  ci:
+    name: CI Success
+    if: ${{ always() }}
+    needs: [changes, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any test leg failed
+        if: ${{ needs.test.result == 'failure' || needs.test.result == 'cancelled' }}
+        run: |
+          echo "One or more test legs failed: ${{ needs.test.result }}"
+          exit 1
+      - run: echo "All affected workspaces passed."
