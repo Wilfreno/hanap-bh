@@ -1,0 +1,24 @@
+{
+  "name": "hanap bh",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "echo '\\n❌ Use `pnpm dev:mobile` (React Native + Nest.js) or `pnpm dev:web` (Next.js + Nest.js) instead.\\n' && exit 1",
+    "dev:mobile": "turbo run dev --filter=mobile --filter=server",
+    "dev:mobile:android": "turbo run mobile#dev:android server#dev",
+    "dev:mobile:ios": "turbo run mobile#dev:ios server#dev",
+    "dev:web": "turbo run dev --filter=web --filter=server",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "turbo": "^2.10.4",
+    "typescript": "5.9.2"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18"
+  }
+}
